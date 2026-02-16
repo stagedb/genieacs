@@ -85,6 +85,9 @@ const options = {
 
   XMPP_JID: { type: "string", default: "" },
   XMPP_PASSWORD: { type: "string", default: "" },
+
+  METRICS_PUSH_URL: { type: "string", default: "" },
+  METRICS_FLUSH_INTERVAL: { type: "int", default: 30000 },
 };
 
 const allConfig: { [name: string]: string | number } = {};
