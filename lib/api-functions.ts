@@ -37,6 +37,7 @@ import { hashPassword } from "./auth.ts";
 import { flattenDevice } from "./ui/db.ts";
 import { ResourceLockedError } from "./common/errors.ts";
 import * as config from "../lib/config.ts";
+import * as metrics from "./metrics.ts";
 
 const XMPP_CONFIGURED = !!config.get("XMPP_JID");
 
@@ -373,7 +374,10 @@ export async function insertTasks(tasks: any[]): Promise<Task[]> {
 
 export async function deleteDevice(deviceId: string): Promise<void> {
   const token = await acquireLock(`cwmp_session_${deviceId}`, 5000);
-  if (!token) throw new ResourceLockedError("Device is in session");
+  if (!token) {
+    metrics.inc("acs_device_in_session_total", { source: "delete_device" });
+    throw new ResourceLockedError("Device is in session");
+  }
   try {
     await Promise.all([
       collections.tasks.deleteMany({ device: deviceId }),
@@ -398,7 +402,10 @@ export async function deleteFault(id: string): Promise<void> {
   const deviceId = id.split(":", 1)[0];
   const channel = id.slice(deviceId.length + 1);
   const token = await acquireLock(`cwmp_session_${deviceId}`, 5000);
-  if (!token) throw new ResourceLockedError("Device is in session");
+  if (!token) {
+    metrics.inc("acs_device_in_session_total", { source: "delete_fault" });
+    throw new ResourceLockedError("Device is in session");
+  }
   try {
     const proms = [dbDeleteFault(id)];
     if (channel.startsWith("task_"))

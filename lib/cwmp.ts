@@ -1103,6 +1103,7 @@ async function processRequest(
     );
 
     if (!lockToken) {
+      metrics.inc("acs_device_in_session_total", { source: "cwmp_session" });
       logger.accessError({
         message: "CPE already in session",
         sessionContext: sessionContext,
