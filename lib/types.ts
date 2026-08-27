@@ -127,6 +127,7 @@ export interface SessionContext {
   iteration: number;
   cycle: number;
   extensionsCache: any;
+  sessionEndExtensions?: Record<string, string[]>;
   declarations: Declaration[][];
   faults?: { [channel: string]: SessionFault };
   retries?: { [channel: string]: number };

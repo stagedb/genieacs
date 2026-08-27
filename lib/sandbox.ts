@@ -284,6 +284,23 @@ function ext(...args: unknown[]): any {
   throw EXT;
 }
 
+// Runs at end of session after saving to db
+ext.sessionEnd = function (...args: unknown[]): any {
+  const extCall = args.map(String);
+  const key = JSON.stringify(extCall);
+
+  // Check if already executed in this session
+  if (key in state.sessionContext.extensionsCache)
+    return state.sessionContext.extensionsCache[key];
+
+  // Store for execution at session end
+  if (!state.sessionContext.sessionEndExtensions) {
+    state.sessionContext.sessionEndExtensions = {};
+  }
+  state.sessionContext.sessionEndExtensions[key] = extCall;
+  return null;
+};
+
 function log(msg: string, meta: Record<string, unknown>): void {
   if (state.revision === state.maxRevision && state.extCounter >= 0) {
     const details = Object.assign({}, meta, {

@@ -809,6 +809,29 @@ async function endSession(sessionContext: SessionContext): Promise<void> {
   }
 
   await Promise.all(promises);
+
+  // Execute sessionEnd extensions after successful DB save
+  if (
+    sessionContext.sessionEndExtensions &&
+    !sessionContext.provisions.length
+  ) {
+    try {
+      await Promise.all(
+        Object.entries(sessionContext.sessionEndExtensions).map(
+          async ([, v]) => {
+            await extensions.run(v);
+          },
+        ),
+      );
+    } catch (err) {
+      logger.accessError({
+        sessionContext: sessionContext,
+        message: "Session end extension error",
+        error: err.message,
+      });
+    }
+  }
+
   await lock.releaseLock(
     `cwmp_session_${sessionContext.deviceId}`,
     `cwmp_session_${sessionContext.sessionId}`,
