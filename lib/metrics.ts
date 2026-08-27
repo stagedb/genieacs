@@ -2,7 +2,6 @@ import * as http from "node:http";
 import * as https from "node:https";
 
 const counters = new Map<string, number>();
-const gauges = new Map<string, number>();
 
 let flushInterval: ReturnType<typeof setInterval> | null = null;
 let pushUrl = "";
@@ -17,24 +16,17 @@ const EVENT_METRICS: Record<string, string> = {
   "6 CONNECTION REQUEST": "acs_event_connection_request_total",
   "7 TRANSFER COMPLETE": "acs_event_transfer_complete_total",
   "8 DIAGNOSTICS COMPLETE": "acs_event_diagnostics_complete_total",
-  "M Reboot": "acs_event_m_reboot",
-  "M Scheduled Inform": "acs_event_m_sched_inform",
-  "M Download": "acs_event_m_download",
+  "M Reboot": "acs_event_m_reboot_total",
+  "M Scheduled Inform": "acs_event_m_sched_inform_total",
+  "M Download": "acs_event_m_download_total",
+  // Sintético: emitido por cwmp.ts quando sessionContext.new
+  Registered: "acs_event_registered_total",
 };
 
 function labelString(labels: Record<string, string>): string {
   const entries = Object.entries(labels);
   if (!entries.length) return "";
-  return (
-    "{" +
-    entries
-      .map(
-        ([k, v]) =>
-          `${k}="${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`,
-      )
-      .join(",") +
-    "}"
-  );
+  return "{" + entries.map(([k, v]) => `${k}="${v}"`).join(",") + "}";
 }
 
 export function inc(name: string, labels: Record<string, string>): void {
@@ -43,46 +35,29 @@ export function inc(name: string, labels: Record<string, string>): void {
   counters.set(key, (counters.get(key) ?? 0) + 1);
 }
 
-export function set(
-  name: string,
-  labels: Record<string, string>,
-  value: number,
-): void {
-  if (!pushUrl) return;
-  const key = `${name}${labelString(labels)}`;
-  gauges.set(key, value);
-}
-
-export function recordEvent(
-  deviceId: string,
-  events: string[],
-  timestamp: number,
-): void {
+export function recordEvent(events: string[]): void {
   if (!pushUrl) return;
   for (const e of events) {
     const eventMetric = EVENT_METRICS[e];
     if (eventMetric) inc(eventMetric, {});
-    if (e === "2 PERIODIC") {
-      set("genieacs_last_inform", { device_id: deviceId }, timestamp / 1000);
-    }
   }
 }
 
 export function recordFault(code: string, channel: string): void {
   if (!pushUrl) return;
-  inc(`genieacs_faults_${code}_total`, { channel });
+  const safe =
+    /^cwmp\.\d{4}$/.test(code) || !code.startsWith("cwmp.")
+      ? code
+      : "cwmp.other";
+  inc("acs_faults_total", { code: safe, channel });
 }
 
 export function flush(): void {
   if (!pushUrl) return;
-  if (counters.size === 0 && gauges.size === 0) return;
+  if (counters.size === 0) return;
 
   const lines: string[] = [];
   for (const [key, value] of counters) lines.push(`${key} ${value}`);
-  for (const [key, value] of gauges) lines.push(`${key} ${value}`);
-
-  counters.clear();
-  gauges.clear();
 
   const body = lines.join("\n") + "\n";
   const url = new URL("/api/v1/import/prometheus", pushUrl);
@@ -99,6 +74,7 @@ export function flush(): void {
 }
 
 export function startFlushing(url: string, intervalMs: number): void {
+  if (flushInterval) clearInterval(flushInterval);
   pushUrl = url;
   flushInterval = setInterval(flush, intervalMs);
   flushInterval.unref();

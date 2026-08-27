@@ -841,6 +841,7 @@ async function endSession(sessionContext: SessionContext): Promise<void> {
     `cwmp_session_${sessionContext.sessionId}`,
   );
   if (sessionContext.new) {
+    metrics.recordEvent(["Registered"]);
     logger.accessInfo({
       sessionContext: sessionContext,
       message: "New device registered",
@@ -1127,11 +1128,7 @@ async function processRequest(
     sessionContext.state = 1;
     sessionContext.authState = 2;
 
-    metrics.recordEvent(
-      sessionContext.deviceId,
-      (rpc.cpeRequest as InformRequest).event,
-      sessionContext.timestamp,
-    );
+    metrics.recordEvent((rpc.cpeRequest as InformRequest).event);
 
     logger.accessInfo({
       sessionContext: sessionContext,
