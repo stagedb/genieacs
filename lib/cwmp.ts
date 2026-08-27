@@ -63,8 +63,41 @@ const MAX_SESSION_DURATION = 300000;
 const LOCK_REFRESH_INTERVAL = 10000;
 export const REQUEST_TIMEOUT = 10000;
 
+// Stateless digest nonce: HMAC(secret, timestamp + client IP), verified by
+// re signing instead of storing. Survives new TCP connection per request
+// set NONCE_SECRET to share across hosts.
+const NONCE_SECRET = "" + config.get("CWMP_NONCE_SECRET");
+const NONCE_TTL = +config.get("CWMP_NONCE_TTL") * 1000;
+
 const currentSessions = new WeakMap<Socket, SessionContext>();
-const sessionsNonces = new WeakMap<Socket, string>();
+
+function generateNonce(remoteAddress: string): string {
+  const ts = Date.now().toString(36);
+  const mac = crypto
+    .createHmac("sha256", NONCE_SECRET)
+    .update(`${ts}:${remoteAddress}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `${ts}.${mac}`;
+}
+
+function verifyNonce(nonce: string, remoteAddress: string): boolean {
+  if (!nonce) return false;
+  const sep = nonce.indexOf(".");
+  if (sep <= 0) return false;
+  const ts = nonce.slice(0, sep);
+  const issued = parseInt(ts, 36);
+  if (!Number.isFinite(issued)) return false;
+  if (Date.now() - issued > NONCE_TTL) return false;
+  const expected = crypto
+    .createHmac("sha256", NONCE_SECRET)
+    .update(`${ts}:${remoteAddress}`)
+    .digest("hex")
+    .slice(0, 32);
+  const a = Buffer.from(nonce.slice(sep + 1));
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 const stats = {
   concurrentRequests: 0,
@@ -96,11 +129,12 @@ async function authenticate(
   }
 
   if (authentication?.method === "Digest") {
-    const sessionNonce = sessionsNonces.get(sessionContext.httpRequest.socket);
+    const remoteAddress = getRequestOrigin(
+      sessionContext.httpRequest,
+    ).remoteAddress;
 
     if (
-      !sessionNonce ||
-      authentication.nonce !== sessionNonce ||
+      !verifyNonce(authentication.nonce, remoteAddress) ||
       (authentication.qop && (!authentication.cnonce || !authentication.nc))
     )
       return false;
@@ -246,8 +280,7 @@ function recordFault(
   if (!channelKeys.length)
     throw new Error("Fault not associated with a channel!");
 
-  for (const ch of channelKeys)
-    metrics.recordFault(fault.code, ch);
+  for (const ch of channelKeys) metrics.recordFault(fault.code, ch);
 
   const faults = sessionContext.faults;
   for (const channel of channelKeys) {
@@ -1018,8 +1051,10 @@ async function responseUnauthorized(
     if (getRequestOrigin(sessionContext.httpRequest).encrypted) {
       resHeaders["WWW-Authenticate"] = `Basic realm="${REALM}"`;
     } else {
-      const nonce = crypto.randomBytes(16).toString("hex");
-      sessionsNonces.set(sessionContext.httpRequest.socket, nonce);
+      const remoteAddress = getRequestOrigin(
+        sessionContext.httpRequest,
+      ).remoteAddress;
+      const nonce = generateNonce(remoteAddress);
       let d = `Digest realm="${REALM}"`;
       d += ',qop="auth,auth-int"';
       d += `,nonce="${nonce}"`;

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as config from "../lib/config.ts";
 import * as logger from "../lib/logger.ts";
 import * as cluster from "../lib/cluster.ts";
@@ -33,6 +34,17 @@ function exitWorkerUngracefully(): void {
 
 if (!cluster.worker) {
   const WORKER_COUNT = config.get("CWMP_WORKER_PROCESSES") as number;
+
+  // No secret set: generate one and pass it down via env so every worker
+  // shares the same key. Per-host only; set CWMP_NONCE_SECRET to share.
+  if (!config.get("CWMP_NONCE_SECRET")) {
+    process.env["GENIEACS_CWMP_NONCE_SECRET"] = randomBytes(32).toString("hex");
+    logger.info({
+      message:
+        "CWMP_NONCE_SECRET not set, using a temporary one for this run. Set it explicitly if you run more than one host.",
+      pid: process.pid,
+    });
+  }
 
   logger.info({
     message: `genieacs-cwmp starting`,
