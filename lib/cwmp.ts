@@ -1041,6 +1041,7 @@ async function responseUnauthorized(
   const resHeaders = {};
   if (close) {
     // Invalid credentials
+    metrics.inc("acs_auth_failure_total", {});
     logger.accessError({
       message: "Authentication failure",
       sessionContext: sessionContext,
