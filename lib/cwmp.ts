@@ -50,6 +50,7 @@ import { parseXmlDeclaration } from "./xml-parser.ts";
 import * as debug from "./debug.ts";
 import { getRequestOrigin } from "./forwarded.ts";
 import { getSocketEndpoints } from "./server.ts";
+import * as metrics from "./metrics.ts";
 
 const gzipPromisified = promisify(zlib.gzip);
 const deflatePromisified = promisify(zlib.deflate);
@@ -244,6 +245,9 @@ function recordFault(
   const channelKeys = Object.keys(channels);
   if (!channelKeys.length)
     throw new Error("Fault not associated with a channel!");
+
+  for (const ch of channelKeys)
+    metrics.recordFault(fault.code, ch);
 
   const faults = sessionContext.faults;
   for (const channel of channelKeys) {
@@ -1122,6 +1126,12 @@ async function processRequest(
 
     sessionContext.state = 1;
     sessionContext.authState = 2;
+
+    metrics.recordEvent(
+      sessionContext.deviceId,
+      (rpc.cpeRequest as InformRequest).event,
+      sessionContext.timestamp,
+    );
 
     logger.accessInfo({
       sessionContext: sessionContext,
