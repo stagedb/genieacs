@@ -106,6 +106,7 @@ if (!cluster.worker) {
     metrics.startFlushing(
       metricsUrl,
       config.get("METRICS_FLUSH_INTERVAL") as number,
+      { worker: String(cluster.worker?.id ?? process.pid) },
     );
   }
 

@@ -5,6 +5,10 @@ const counters = new Map<string, number>();
 
 let flushInterval: ReturnType<typeof setInterval> | null = null;
 let pushUrl = "";
+// Extra labels applied to every pushed series (e.g. worker="3") so that
+// multiple worker processes pushing the same metric don't clobber each
+// other's samples at the collector. Aggregate with sum without(worker)(...).
+let instanceLabels = "";
 
 const EVENT_METRICS: Record<string, string> = {
   "0 BOOTSTRAP": "acs_event_bootstrap_total",
@@ -57,7 +61,17 @@ export function flush(): void {
   if (counters.size === 0) return;
 
   const lines: string[] = [];
-  for (const [key, value] of counters) lines.push(`${key} ${value}`);
+  for (const [key, value] of counters) {
+    let series = key;
+    if (instanceLabels) {
+      const brace = key.indexOf("{");
+      series =
+        brace === -1
+          ? `${key}{${instanceLabels}}`
+          : `${key.slice(0, brace + 1)}${instanceLabels},${key.slice(brace + 1)}`;
+    }
+    lines.push(`${series} ${value}`);
+  }
 
   const body = lines.join("\n") + "\n";
   const url = new URL("/api/v1/import/prometheus", pushUrl);
@@ -73,9 +87,18 @@ export function flush(): void {
   req.end(body);
 }
 
-export function startFlushing(url: string, intervalMs: number): void {
+export function startFlushing(
+  url: string,
+  intervalMs: number,
+  labels?: Record<string, string>,
+): void {
   if (flushInterval) clearInterval(flushInterval);
   pushUrl = url;
+  instanceLabels = labels
+    ? Object.entries(labels)
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(",")
+    : "";
   flushInterval = setInterval(flush, intervalMs);
   flushInterval.unref();
 }
